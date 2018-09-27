@@ -1,0 +1,43 @@
+[[columns]]
+label = "EMAIL"
+matches = ["EMAIL"]
+unique = true
+[[columns]]
+label = "FNAME"
+matches = ["FNAME"]
+[[columns]]
+label = "LNAME"
+matches = ["LNAME"]
+[[columns]]
+label = "GENDER"
+matches = ["GENDER"]
+[[columns]]
+label = "AGE"
+matches = ["AGE"]
+[[columns]]
+label = "PHONE"
+matches = ["PHONE"]
+[[columns]]
+label = "ADDRESS"
+matches = ["ADDRESS"]
+[[columns]]
+label = "CITY"
+matches = ["CITY"]
+[[columns]]
+label = "STATE"
+matches = ["STATE"]
+[[columns]]
+label = "ZIPCODE"
+matches = ["ZIPCODE"]
+[[columns]]
+label = "COUNTRY"
+matches = ["COUNTRY"]
+[[columns]]
+label = "OS"
+matches = ["OS"]
+[[columns]]
+label = "IP_ADDRESS"
+matches = ["IP_ADDRESS"]
+[[columns]]
+label = "STATUS"
+matches = ["STATUS"]
