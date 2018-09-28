@@ -6,17 +6,26 @@ extern crate serde_derive;
 extern crate config;
 extern crate csv;
 
+use std::collections::HashSet;
 use std::env;
 use std::error::Error;
+use std::str;
 use std::fs;
 use std::path::Path;
 
-// fn get_header_indices() {
-
-// }
 mod settings;
 
 use settings::Settings;
+
+
+pub struct Input {
+    pub path: String,
+    pub indices: Vec<Option<usize>>,
+}
+
+pub struct Output {
+
+}
 
 fn main() -> Result<(), Box<Error>> {
     let settings = Settings::new().unwrap();
@@ -24,6 +33,8 @@ fn main() -> Result<(), Box<Error>> {
     let mut wtr = csv::Writer::from_writer(fs::File::create("output.csv")?);
     let mut output_header = csv::ByteRecord::new();
     let columns_count = settings.columns.len();
+
+    let mut cache: HashSet<String> = HashSet::new();
     for c in settings.columns {
         output_header.push_field(c.label.as_bytes());
     }
@@ -48,7 +59,7 @@ fn main() -> Result<(), Box<Error>> {
                 }
                 j += 1;
             }
-           idx
+            idx
         };
 
         let mut row = csv::ByteRecord::new();
@@ -61,7 +72,12 @@ fn main() -> Result<(), Box<Error>> {
                     Some(x) => &row.get(x).unwrap(),
                 })
             }
-            wtr.write_byte_record(&roww)?;
+
+            let email = str::from_utf8(&roww.get(0).unwrap()).unwrap().to_string();
+            if !cache.contains(&email) {
+                cache.insert(email);
+                wtr.write_byte_record(&roww)?;
+            }
         }
     }
     wtr.flush()?;
