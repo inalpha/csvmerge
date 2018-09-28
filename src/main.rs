@@ -9,77 +9,117 @@ extern crate csv;
 use std::collections::HashSet;
 use std::env;
 use std::error::Error;
-use std::str;
 use std::fs;
 use std::path::Path;
+use std::str;
+use std::sync::{Arc, Mutex};
 
 mod settings;
 
 use settings::Settings;
 
-
 pub struct Input {
-    pub path: String,
-    pub indices: Vec<Option<usize>>,
+    indices: Vec<Option<usize>>,
+    rdr: csv::Reader<std::fs::File>,
+    row: csv::ByteRecord,
+}
+
+impl Input {
+    pub fn new(path: &str, columns: &Vec<Vec<String>>) -> Self {
+        let path = Path::new(path);
+        let file = fs::File::open(path).unwrap();
+        let mut rdr = csv::ReaderBuilder::new().from_reader(file);
+        let mut indices: Vec<Option<usize>> = vec![None; columns.len()];
+
+        {
+            let headers = rdr.byte_headers().unwrap();
+            for (i, header) in headers.iter().enumerate() {
+                for (j, matches) in columns.iter().enumerate() {
+                    if matches.contains(&str::from_utf8(header).unwrap().to_string()) {
+                        indices[j] = Some(i);
+                    }
+                }
+            }
+        }
+
+        Input {
+            indices: indices,
+            rdr: rdr,
+            row: csv::ByteRecord::new(),
+        }
+    }
+
+    pub fn next(&mut self) -> Option<csv::ByteRecord> {
+        match self.rdr.read_byte_record(&mut self.row) {
+            Ok(true) => {
+                let mut row = csv::ByteRecord::new();
+                for i in &self.indices {
+                    row.push_field(match i {
+                        None => b"",
+                        Some(i) => &self.row.get(*i).unwrap(),
+                    })
+                }
+                Some(row)
+            }
+            Ok(false) => None,
+            Err(_) => None,
+        }
+    }
 }
 
 pub struct Output {
+    w: Arc<Mutex<csv::Writer<std::fs::File>>>,
+    c: Arc<Mutex<HashSet<String>>>,
+}
 
+impl Output {
+    pub fn new(path: &str, header: &csv::ByteRecord) -> Self {
+        let mut w = csv::Writer::from_writer(fs::File::create(path).unwrap());
+        w.write_byte_record(header).unwrap();
+        w.flush().unwrap();
+        Output {
+            w: Arc::new(Mutex::new(w)),
+            c: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    pub fn write(&mut self, row: &csv::ByteRecord) {
+        let mut c = self.c.lock().unwrap();
+        let unique = str::from_utf8(&row.get(0).unwrap()).unwrap().to_string();
+        if !c.contains(&unique) {
+            c.insert(unique);
+            self.w.lock().unwrap().write_byte_record(row).unwrap();
+        }
+    }
+
+    pub fn flush(&mut self) {
+        self.w.lock().unwrap().flush().unwrap();
+    }
 }
 
 fn main() -> Result<(), Box<Error>> {
     let settings = Settings::new().unwrap();
     let filenames: Vec<String> = env::args().skip(1).collect();
-    let mut wtr = csv::Writer::from_writer(fs::File::create("output.csv")?);
-    let mut output_header = csv::ByteRecord::new();
-    let columns_count = settings.columns.len();
 
-    let mut cache: HashSet<String> = HashSet::new();
+    let mut header = csv::ByteRecord::new();
+    let mut columns: Vec<Vec<String>> = vec![];
     for c in settings.columns {
-        output_header.push_field(c.label.as_bytes());
+        header.push_field(c.label.as_bytes());
+        columns.push(c.matches);
     }
-    wtr.write_byte_record(&output_header)?;
+
+    let mut output = Output::new("output.csv", &header);
 
     for file in filenames {
-        let path = Path::new(&file);
-        let file = fs::File::open(path)?;
-        let mut rdr = csv::ReaderBuilder::new().from_reader(file);
-        let idx = {
-            let headers = rdr.byte_headers()?;
-            let mut idx: Vec<Option<usize>> = vec![None; columns_count];
-            let mut i: usize;
-            let mut j: usize = 0;
-            for field in headers.iter() {
-                i = 0;
-                for f in output_header.iter() {
-                    if field == f {
-                        idx[i] = Some(j);
-                    }
-                    i += 1;
-                }
-                j += 1;
-            }
-            idx
-        };
+        let mut input = Input::new(&file, &columns);
 
-        let mut row = csv::ByteRecord::new();
-
-        while rdr.read_byte_record(&mut row)? {
-            let mut roww = csv::ByteRecord::new();
-            for i in idx.clone() {
-                roww.push_field(match i {
-                    None => b"",
-                    Some(x) => &row.get(x).unwrap(),
-                })
-            }
-
-            let email = str::from_utf8(&roww.get(0).unwrap()).unwrap().to_string();
-            if !cache.contains(&email) {
-                cache.insert(email);
-                wtr.write_byte_record(&roww)?;
+        loop {
+            match input.next() {
+                Some(r) => output.write(&r),
+                None => break,
             }
         }
     }
-    wtr.flush()?;
+    output.flush();
     Ok(())
 }
