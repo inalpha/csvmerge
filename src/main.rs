@@ -1,3 +1,6 @@
+extern crate num_cpus;
+extern crate threadpool;
+
 extern crate serde;
 
 #[macro_use]
@@ -7,13 +10,12 @@ extern crate config;
 extern crate csv;
 
 use std::collections::HashSet;
-use std::env;
+use std::{env, fs, str};
 use std::error::Error;
-use std::fs;
 use std::path::Path;
-use std::str;
 use std::sync::{Arc, Mutex};
-
+use std::sync::mpsc::channel;
+use threadpool::ThreadPool;
 mod settings;
 
 use settings::Settings;
@@ -68,8 +70,8 @@ impl Input {
 }
 
 pub struct Output {
-    w: Arc<Mutex<csv::Writer<std::fs::File>>>,
-    c: Arc<Mutex<HashSet<String>>>,
+    w: csv::Writer<std::fs::File>,
+    c: HashSet<String>,
 }
 
 impl Output {
@@ -78,22 +80,21 @@ impl Output {
         w.write_byte_record(header).unwrap();
         w.flush().unwrap();
         Output {
-            w: Arc::new(Mutex::new(w)),
-            c: Arc::new(Mutex::new(HashSet::new())),
+            w: w,
+            c: HashSet::new(),
         }
     }
 
     pub fn write(&mut self, row: &csv::ByteRecord) {
-        let mut c = self.c.lock().unwrap();
         let unique = str::from_utf8(&row.get(0).unwrap()).unwrap().to_string();
-        if !c.contains(&unique) {
-            c.insert(unique);
-            self.w.lock().unwrap().write_byte_record(row).unwrap();
+        if !self.c.contains(&unique) {
+            self.c.insert(unique);
+            self.w.write_byte_record(row).unwrap();
         }
     }
 
     pub fn flush(&mut self) {
-        self.w.lock().unwrap().flush().unwrap();
+        self.w.flush().unwrap();
     }
 }
 
@@ -109,17 +110,45 @@ fn main() -> Result<(), Box<Error>> {
     }
 
     let mut output = Output::new("output.csv", &header);
+    let pool = ThreadPool::new(num_cpus::get());
+    let (sender, receiver) = channel();
+    let mut count = filenames.len();
 
     for file in filenames {
         let mut input = Input::new(&file, &columns);
-
-        loop {
-            match input.next() {
-                Some(r) => output.write(&r),
-                None => break,
+        let sender = sender.clone();
+        pool.execute(move|| {
+            loop {
+                match input.next() {
+                    Some(r) => sender.send(Some(r)).unwrap(),
+                    None => {
+                        sender.send(None).unwrap();
+                        break;
+                    },
+                }
             }
+            println!("done with: {}", file);
+        });
+    }
+
+    let mut iter = receiver.iter();
+    loop {
+        match iter.next() {
+            Some(r) => match r {
+                Some(r) => output.write(&r),
+                None => {
+                    count -= 1;
+                    if count == 0 {
+                        break;
+                    }
+                }
+            },
+            None => break,
         }
     }
     output.flush();
+
+    println!("done with");
+    
     Ok(())
 }
