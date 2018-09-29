@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<Error>> {
     }
     output.flush();
 
-    println!("done with");
+    println!("done");
     
     Ok(())
 }
