@@ -13,7 +13,6 @@ use std::collections::HashSet;
 use std::{env, fs, str};
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 use threadpool::ThreadPool;
 mod settings;
@@ -132,18 +131,15 @@ fn main() -> Result<(), Box<Error>> {
     }
 
     let mut iter = receiver.iter();
-    loop {
-        match iter.next() {
-            Some(r) => match r {
-                Some(r) => output.write(&r),
-                None => {
-                    count -= 1;
-                    if count == 0 {
-                        break;
-                    }
-                }
-            },
-            None => break,
+    while count > 0 {
+        if let Some(i) = iter.next() {
+            if let Some(r) = i {
+                output.write(&r)
+            } else {
+                count -= 1;
+            }
+        } else {
+            break;
         }
     }
     output.flush();
